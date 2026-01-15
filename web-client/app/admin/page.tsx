@@ -7,7 +7,7 @@ import { FaceMatcher } from "@/lib/matcher";
 import {
     LayoutDashboard, Upload, Image as ImageIcon, Settings,
     LogOut, ExternalLink, QrCode, X, Check,
-    LayoutGrid, Zap, Wand2, Trash2, Loader2, Menu
+    LayoutGrid, Zap, Wand2, Trash2, Loader2, Menu, Lock, Globe
 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 
@@ -37,7 +37,7 @@ export default function AdminDashboard() {
     const [loadingPhotos, setLoadingPhotos] = useState(false);
     const [showQRModal, setShowQRModal] = useState(false);
 
-    const [uploadMode, setUploadMode] = useState<'direct' | 'studio'>('direct');
+    const [uploadMode, setUploadMode] = useState<'public' | 'private'>('public');
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -46,8 +46,7 @@ export default function AdminDashboard() {
     const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
     const [processingStatus, setProcessingStatus] = useState("");
 
-    const [landscapeOverlay, setLandscapeOverlay] = useState<HTMLImageElement | null>(null);
-    const [portraitOverlay, setPortraitOverlay] = useState<HTMLImageElement | null>(null);
+
 
     useEffect(() => {
         checkAuth();
@@ -83,7 +82,7 @@ export default function AdminDashboard() {
     const fetchPhotos = async (eventId: string) => {
         setLoadingPhotos(true);
         try {
-            const res = await fetch(`/api/events/${eventId}/photos`);
+            const res = await fetch(`/api/events/${eventId}/photos?includePrivate=true`);
             const data = await res.json();
             setPhotos(data);
         } catch (e) { console.error(e); }
@@ -168,30 +167,14 @@ export default function AdminDashboard() {
 
                 let blobToUpload = file;
 
-                if (uploadMode === 'studio') {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    const ctx = canvas.getContext('2d');
-                    if (ctx) {
-                        ctx.drawImage(img, 0, 0);
-                        const isLandscape = img.width > img.height;
-                        const overlay = isLandscape ? landscapeOverlay : portraitOverlay;
-                        if (overlay) {
-                            ctx.drawImage(overlay, 0, 0, img.width, img.height);
-                            const processedBlob = await new Promise<Blob | null>(resolve =>
-                                canvas.toBlob(resolve, 'image/jpeg', 1.0)
-                            );
-                            if (processedBlob) blobToUpload = new File([processedBlob], file.name, { type: 'image/jpeg' });
-                        }
-                    }
-                }
+
 
                 const formData = new FormData();
                 formData.append('file', blobToUpload);
                 formData.append('eventId', PROFILE_EVENT_ID);
                 formData.append('vectors', JSON.stringify(vectors));
                 formData.append('faceHashes', JSON.stringify(faceHashes));
+                formData.append('isPrivate', (uploadMode === 'private').toString());
 
                 const res = await fetch('/api/upload', {
                     method: 'POST',
@@ -215,20 +198,7 @@ export default function AdminDashboard() {
         fetchPhotos(PROFILE_EVENT_ID);
     };
 
-    const handleOverlaySelect = (e: React.ChangeEvent<HTMLInputElement>, type: 'landscape' | 'portrait') => {
-        if (e.target.files && e.target.files[0]) {
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                const img = new Image();
-                img.onload = () => {
-                    if (type === 'landscape') setLandscapeOverlay(img);
-                    else setPortraitOverlay(img);
-                };
-                img.src = ev.target?.result as string;
-            };
-            reader.readAsDataURL(e.target.files[0]);
-        }
-    };
+
 
     if (authLoading) return (
         <div className="h-screen bg-[var(--background)] flex flex-col items-center justify-center gap-4 text-[var(--muted)]">
@@ -354,44 +324,33 @@ export default function AdminDashboard() {
                     <div className="glass-panel rounded-2xl overflow-hidden shadow-2xl shadow-black/40 border-red-500/10">
                         <div className="flex border-b border-red-500/10 bg-black/20">
                             <button
-                                onClick={() => setUploadMode('direct')}
+                                onClick={() => setUploadMode('public')}
                                 className={`flex-1 py-5 flex items-center justify-center gap-2.5 text-sm font-bold transition-all relative
-                                    ${uploadMode === 'direct' ? 'text-white bg-white/5' : 'text-[var(--muted)] hover:text-white hover:bg-white/5'}
+                                    ${uploadMode === 'public' ? 'text-white bg-white/5' : 'text-[var(--muted)] hover:text-white hover:bg-white/5'}
                                 `}
                             >
-                                <Zap size={16} className={uploadMode === 'direct' ? 'text-red-400' : ''} /> Direct Upload
-                                {uploadMode === 'direct' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500 shadow-[0_-2px_10px_rgba(220,38,38,0.5)]"></div>}
+                                <Globe size={16} className={uploadMode === 'public' ? 'text-blue-400' : ''} /> Public Gallery
+                                {uploadMode === 'public' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 shadow-[0_-2px_10px_rgba(59,130,246,0.5)]"></div>}
                             </button>
                             <button
-                                onClick={() => setUploadMode('studio')}
+                                onClick={() => setUploadMode('private')}
                                 className={`flex-1 py-5 flex items-center justify-center gap-2.5 text-sm font-bold transition-all relative
-                                    ${uploadMode === 'studio' ? 'text-white bg-white/5' : 'text-[var(--muted)] hover:text-white hover:bg-white/5'}
+                                    ${uploadMode === 'private' ? 'text-white bg-white/5' : 'text-[var(--muted)] hover:text-white hover:bg-white/5'}
                                 `}
                             >
-                                <Wand2 size={16} className={uploadMode === 'studio' ? 'text-pink-500' : ''} /> Studio Processing
-                                {uploadMode === 'studio' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-pink-500 shadow-[0_-2px_10px_rgba(236,72,153,0.5)]"></div>}
+                                <Lock size={16} className={uploadMode === 'private' ? 'text-red-500' : ''} /> Private Gallery
+                                {uploadMode === 'private' && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500 shadow-[0_-2px_10px_rgba(239,68,68,0.5)]"></div>}
                             </button>
                         </div>
 
                         <div className="p-10">
                             {!uploading ? (
                                 <div className="space-y-8">
-                                    {uploadMode === 'studio' && (
-                                        <div className="grid grid-cols-2 gap-6 p-6 rounded-2xl bg-black/20 border border-red-500/10 animate-fade-in">
-                                            <div>
-                                                <label className="text-xs font-bold text-[var(--muted)] uppercase mb-3 block">Landscape Overlay</label>
-                                                <input type="file" onChange={(e) => handleOverlaySelect(e, 'landscape')} className="text-sm text-[var(--muted)] file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-red-500/10 file:text-red-400 hover:file:bg-red-500/20 transition-all cursor-pointer" />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-[var(--muted)] uppercase mb-3 block">Portrait Overlay</label>
-                                                <input type="file" onChange={(e) => handleOverlaySelect(e, 'portrait')} className="text-sm text-[var(--muted)] file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-pink-500/10 file:text-pink-400 hover:file:bg-pink-500/20 transition-all cursor-pointer" />
-                                            </div>
-                                        </div>
-                                    )}
+
 
                                     <div
                                         className={`border-2 border-dashed rounded-2xl p-16 text-center transition-all cursor-pointer group relative overflow-hidden
-                                            ${uploadMode === 'direct' ? 'border-red-500/20 hover:border-red-500/50 hover:bg-red-500/5' : 'border-pink-500/20 hover:border-pink-500/50 hover:bg-pink-500/5'}
+                                            ${uploadMode === 'public' ? 'border-blue-500/20 hover:border-blue-500/50 hover:bg-blue-500/5' : 'border-red-500/20 hover:border-red-500/50 hover:bg-red-500/5'}
                                         `}
                                         onDragOver={(e) => e.preventDefault()}
                                         onDrop={(e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
@@ -399,10 +358,14 @@ export default function AdminDashboard() {
                                     >
                                         <input id="fileUpload" type="file" multiple accept="image/*" className="hidden" onChange={(e) => handleFiles(e.target.files)} />
                                         <div className="w-20 h-20 rounded-full bg-[var(--surface-highlight)] flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform shadow-lg">
-                                            <Upload size={32} className={uploadMode === 'direct' ? 'text-red-400' : 'text-pink-400'} />
+                                            <Upload size={32} className={uploadMode === 'public' ? 'text-blue-400' : 'text-red-400'} />
                                         </div>
-                                        <h3 className="text-xl font-bold text-white mb-2">Drop files here or click to browse</h3>
-                                        <p className="text-sm text-[var(--muted)]">Supports JPG, PNG • Batch Processing Ready</p>
+                                        <h3 className="text-xl font-bold text-white mb-2">
+                                            {uploadMode === 'public' ? 'Upload Public Photos' : 'Upload Private Photos'}
+                                        </h3>
+                                        <p className="text-sm text-[var(--muted)]">
+                                            {uploadMode === 'public' ? 'Visible to everyone in the gallery.' : 'Hidden. Only visible to people in the photo.'}
+                                        </p>
                                     </div>
                                 </div>
                             ) : (
@@ -455,6 +418,11 @@ export default function AdminDashboard() {
                                 {photos.map(p => (
                                     <div key={p.id} className="relative aspect-square group rounded-2xl overflow-hidden bg-[var(--surface-highlight)] border border-white/5 hover:border-red-500/50 transition-all shadow-lg hover:shadow-red-500/20">
                                         <img src={p.url} alt="" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-300 transform group-hover:scale-105" loading="lazy" />
+                                        {(p as any).isPrivate && (
+                                            <div className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full shadow-md z-20" title="Private Photo">
+                                                <Lock size={12} />
+                                            </div>
+                                        )}
                                         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3 backdrop-blur-sm">
                                             <a href={p.url} target="_blank" className="p-3 bg-white text-black rounded-full hover:scale-110 transition-transform shadow-lg"><ExternalLink size={16} /></a>
                                             <button onClick={(e) => deletePhoto(e, p.id)} className="p-3 bg-red-500 text-white rounded-full hover:scale-110 transition-transform shadow-lg"><Trash2 size={16} /></button>

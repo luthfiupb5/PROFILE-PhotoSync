@@ -21,6 +21,7 @@ export interface Photo {
     id: string;
     url: string;
     eventId: string;
+    isPrivate: boolean;
     createdAt: Date;
 }
 
@@ -65,7 +66,11 @@ class LocalDatabase {
                 this.data = {
                     users: parsed.users.map((u: any) => ({ ...u, createdAt: new Date(u.createdAt) })),
                     events: parsed.events.map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) })),
-                    photos: parsed.photos.map((p: any) => ({ ...p, createdAt: new Date(p.createdAt) })),
+                    photos: parsed.photos.map((p: any) => ({
+                        ...p,
+                        createdAt: new Date(p.createdAt),
+                        isPrivate: !!p.isPrivate // Ensure boolean
+                    })),
                     vectors: parsed.vectors
                 };
             } catch (e) {
@@ -226,11 +231,12 @@ class LocalDatabase {
         return null;
     }
 
-    async addPhotoWithVectors(url: string, eventId: string, vectors: number[][], hashes?: string[]) {
+    async addPhotoWithVectors(url: string, eventId: string, vectors: number[][], hashes?: string[], isPrivate: boolean = false) {
         const photo: Photo = {
             id: crypto.randomUUID(),
             url,
             eventId,
+            isPrivate,
             createdAt: new Date()
         };
         this.data.photos.push(photo);
@@ -250,10 +256,10 @@ class LocalDatabase {
         return photo;
     }
 
-    async getPhotos(eventId: string) {
+    async getPhotos(eventId: string, includePrivate: boolean = false) {
         this.load();
         return this.data.photos
-            .filter(p => p.eventId === eventId)
+            .filter(p => p.eventId === eventId && (includePrivate || !p.isPrivate))
             .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
     }
 

@@ -28,7 +28,8 @@ export async function POST(req: Request) {
 
         const vectors = JSON.parse(vectorsStr);
         const faceHashes = faceHashesStr ? JSON.parse(faceHashesStr) : undefined;
-        const photo = await db.addPhotoWithVectors(relativePath, eventId, vectors, faceHashes);
+        const isPrivate = formData.get('isPrivate') === 'true';
+        const photo = await db.addPhotoWithVectors(relativePath, eventId, vectors, faceHashes, isPrivate);
 
         console.log(`[API] Saved photo locally: ${relativePath}`);
         return NextResponse.json({ success: true, photo });
