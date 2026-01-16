@@ -16,7 +16,7 @@ interface Event {
 
 // Hardcoded Event Details for PROFILE Conference
 const PROFILE_EVENT: Event = {
-  id: "profile-conf-2026", // This will still need to match a backend event for scanning to work, but we'll default to this.
+  id: "3a71dfc7-4949-4dbd-96ff-0d307995df06", // Matching Database UUID
   name: "PROFILE Conference 2026",
 };
 
@@ -141,9 +141,18 @@ function EventPage() {
     try {
       const res = await fetch(`/api/events/${eventId}/photos`);
       const data = await res.json();
-      setAllPhotos(data);
-      setStep("ALL_PHOTOS");
-    } catch (e) { console.error(e); }
+
+      if (Array.isArray(data)) {
+        setAllPhotos(data);
+        setStep("ALL_PHOTOS");
+      } else {
+        console.error("Invalid gallery response:", data);
+        alert("Failed to load gallery: " + (data.error || "Unknown error"));
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Failed to load gallery");
+    }
     finally { setLoading(false); }
   };
 

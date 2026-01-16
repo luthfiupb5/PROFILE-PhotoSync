@@ -20,9 +20,19 @@ export async function GET(
         }
 
         const photos = await db.getPhotos(id, includePrivate);
+        console.log(`[API] Fetched ${photos.length} photos for event ${id}`);
         return NextResponse.json(photos);
-    } catch (e) {
-        console.error(e);
-        return NextResponse.json({ error: 'Failed to fetch photos' }, { status: 500 });
+    } catch (e: any) {
+        console.error('[API] Error fetching photos:', {
+            message: e.message,
+            code: e.code,
+            details: e.details,
+            hint: e.hint
+        });
+        return NextResponse.json({
+            error: 'Failed to fetch photos',
+            details: e.message,
+            code: e.code
+        }, { status: 500 });
     }
 }

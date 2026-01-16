@@ -23,7 +23,7 @@ interface AuthUser {
 }
 
 // Hardcoded for the single event instance
-const PROFILE_EVENT_ID = "profile-conf-2026";
+const PROFILE_EVENT_ID = "3a71dfc7-4949-4dbd-96ff-0d307995df06";
 const PROFILE_EVENT_NAME = "PROFILE Conference 2026";
 
 export default function AdminDashboard() {
@@ -84,8 +84,17 @@ export default function AdminDashboard() {
         try {
             const res = await fetch(`/api/events/${eventId}/photos?includePrivate=true`);
             const data = await res.json();
-            setPhotos(data);
-        } catch (e) { console.error(e); }
+
+            if (Array.isArray(data)) {
+                setPhotos(data);
+            } else {
+                console.error("Invalid photos response:", data);
+                setPhotos([]);
+            }
+        } catch (e) {
+            console.error(e);
+            setPhotos([]);
+        }
         finally { setLoadingPhotos(false); }
     };
 

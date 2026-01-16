@@ -1,5 +1,6 @@
-import fs from 'fs';
-import path from 'path';
+import { createClient } from '@supabase/supabase-js';
+import { r2, R2_BUCKET_NAME, R2_PUBLIC_URL } from './r2';
+import { DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 export interface User {
     id: string;
@@ -33,114 +34,94 @@ export interface FaceVector {
     faceHash?: string;
 }
 
-interface DBData {
-    users: User[];
-    events: Event[];
-    photos: Photo[];
-    vectors: FaceVector[];
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+console.log('[DB] Initializing Supabase client...');
+console.log('[DB] URL:', supabaseUrl?.substring(0, 30) + '...');
+console.log('[DB] Key:', supabaseKey ? 'Present (' + supabaseKey.substring(0, 20) + '...)' : 'MISSING!');
+
+if (!supabaseUrl || !supabaseKey) {
+    throw new Error('[DB] Missing Supabase credentials!');
 }
 
-const DB_PATH = path.join(process.cwd(), 'data', 'db.json');
-
-class LocalDatabase {
-    private data: DBData = { users: [], events: [], photos: [], vectors: [] };
-    private initialized = false;
-
-    constructor() {
-        this.init();
-    }
-
-    private ensureDataDir() {
-        const dir = path.dirname(DB_PATH);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+const supabase = createClient(
+    supabaseUrl,
+    supabaseKey,
+    {
+        auth: {
+            autoRefreshToken: false,
+            persistSession: false
         }
     }
+);
 
-    private load() {
-        this.ensureDataDir();
-        if (fs.existsSync(DB_PATH)) {
-            const raw = fs.readFileSync(DB_PATH, 'utf-8');
-            try {
-                const parsed = JSON.parse(raw);
-                this.data = {
-                    users: parsed.users.map((u: any) => ({ ...u, createdAt: new Date(u.createdAt) })),
-                    events: parsed.events.map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) })),
-                    photos: parsed.photos.map((p: any) => ({
-                        ...p,
-                        createdAt: new Date(p.createdAt),
-                        isPrivate: !!p.isPrivate // Ensure boolean
-                    })),
-                    vectors: parsed.vectors
-                };
-            } catch (e) {
-                console.error("Failed to parse DB, starting fresh", e);
-                this.data = { users: [], events: [], photos: [], vectors: [] };
-            }
-        }
-    }
+console.log('[DB] Supabase client initialized');
 
-    private save() {
-        this.ensureDataDir();
-        fs.writeFileSync(DB_PATH, JSON.stringify(this.data, null, 2));
-    }
-
-    async init() {
-        if (this.initialized) return;
-        this.load();
-
-        const admin = this.data.users.find(u => u.username === 'luthfi');
-        if (!admin) {
-            console.log("Seeding default super_admin...");
-            this.data.users.push({
-                id: crypto.randomUUID(),
-                username: 'luthfi',
-                password: 'Luthfi@2005',
-                role: 'super_admin',
-                createdAt: new Date()
-            });
-            this.save();
-        }
-
-        this.initialized = true;
-    }
-
+class Database {
     async getUser(username: string) {
-        return this.data.users.find(u => u.username === username) || null;
+        const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('username', username)
+            .single();
+
+        if (error) return null;
+        return data as User;
     }
 
     async getUserById(id: string) {
-        return this.data.users.find(u => u.id === id) || null;
+        const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (error) return null;
+        return data as User;
     }
 
-    async createUser(username: string, password: string, role: 'super_admin' | 'program_admin', eventId?: string) {
-        const newUser: User = {
-            id: crypto.randomUUID(),
-            username,
-            password,
-            role,
-            eventId: eventId || null,
-            createdAt: new Date()
-        };
-        this.data.users.push(newUser);
-        this.save();
-        return newUser;
+    async createUser(username: string, password: string, role: string, eventId?: string) {
+        const id = crypto.randomUUID();
+        const { data, error } = await supabase
+            .from('users')
+            .insert({
+                id,
+                username,
+                password,
+                role,
+                event_id: eventId || null
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data as User;
     }
 
     async getEvents() {
-        this.load();
-        return [...this.data.events].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        const { data, error } = await supabase
+            .from('events')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        return data as Event[];
     }
 
     async createEvent(name: string, banner?: string) {
         const eventId = crypto.randomUUID();
-        const newEvent: Event = {
-            id: eventId,
-            name,
-            banner: banner || null,
-            createdAt: new Date()
-        };
-        this.data.events.push(newEvent);
+        const { data: event, error } = await supabase
+            .from('events')
+            .insert({
+                id: eventId,
+                name,
+                banner: banner || null
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
 
         const sanitized = name.toLowerCase().replace(/[^a-z0-9]/g, '');
         const username = `${sanitized}.admin`;
@@ -148,135 +129,149 @@ class LocalDatabase {
 
         await this.createUser(username, password, 'program_admin', eventId);
 
-        this.save();
-        return { event: newEvent, credentials: { username, password } };
+        return { event: event as Event, credentials: { username, password } };
     }
 
     async deleteEvent(id: string) {
-        console.log(`[DB] Attempting to delete event: ${id}`);
-        const idx = this.data.events.findIndex(e => e.id === id);
-        if (idx !== -1) {
-            console.log(`[DB] Event found at index ${idx}, deleting...`);
-            const deleted = this.data.events.splice(idx, 1)[0];
+        console.log(`[DB] Deleting event: ${id}`);
 
-            const eventDir = path.join(process.cwd(), 'public', 'uploads', id);
-            if (fs.existsSync(eventDir)) {
-                try {
-                    fs.rmSync(eventDir, { recursive: true, force: true });
-                    console.log(`[DB] Deleted directory: ${eventDir}`);
-                } catch (e) {
-                    console.error(`[DB] Failed to delete directory: ${eventDir}`, e);
+        const photos = await this.getPhotos(id, true);
+
+        for (const photo of photos) {
+            try {
+                if (photo.url.includes(R2_PUBLIC_URL)) {
+                    const key = photo.url.replace(`${R2_PUBLIC_URL}/`, '');
+                    await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET_NAME, Key: key }));
                 }
+            } catch (e) {
+                console.error(`Failed to delete R2 object for photo ${photo.id}`, e);
             }
-
-            const initialPhotos = this.data.photos.length;
-            this.data.photos = this.data.photos.filter(p => p.eventId !== id);
-            console.log(`[DB] Deleted ${initialPhotos - this.data.photos.length} photos`);
-
-            this.data.vectors = this.data.vectors.filter(v => v.eventId !== id);
-
-            const initialUsers = this.data.users.length;
-            this.data.users = this.data.users.filter(u => u.eventId !== id);
-            console.log(`[DB] Deleted ${initialUsers - this.data.users.length} users`);
-
-            this.save();
-            console.log(`[DB] Event deletion saved to disk.`);
-            return deleted;
-        } else {
-            console.warn(`[DB] Event ID ${id} not found.`);
         }
-        return null;
+
+        const { data, error } = await supabase
+            .from('events')
+            .delete()
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) return null;
+        return data as Event;
     }
 
     async getEventAdmin(eventId: string) {
-        this.load();
-        const user = this.data.users.find(u => u.eventId === eventId && u.role === 'program_admin');
-        if (user) return { username: user.username, password: user.password };
+        const { data, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('event_id', eventId)
+            .eq('role', 'program_admin')
+            .single();
 
-        const event = this.data.events.find(e => e.id === eventId);
-        if (event) {
-            console.log(`Lazy generating credentials for event: ${event.name}`);
-            const sanitized = event.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const username = `${sanitized}.admin`;
-
-            let finalUsername = username;
-            if (this.data.users.some(u => u.username === finalUsername)) {
-                finalUsername = `${username}.${Math.floor(Math.random() * 1000)}`;
-            }
-
-            const password = Math.random().toString(36).slice(-8);
-
-            await this.createUser(finalUsername, password, 'program_admin', eventId);
-            return { username: finalUsername, password };
-        }
-
-        return null;
+        if (error || !data) return null;
+        return { username: data.username, password: data.password };
     }
 
     async deletePhoto(id: string) {
-        const idx = this.data.photos.findIndex(p => p.id === id);
-        if (idx !== -1) {
-            const deleted = this.data.photos.splice(idx, 1)[0];
+        const { data: photo, error } = await supabase
+            .from('photos')
+            .delete()
+            .eq('id', id)
+            .select()
+            .single();
 
-            const relativePath = deleted.url.startsWith('/') ? deleted.url.slice(1) : deleted.url;
-            const absolutePath = path.join(process.cwd(), 'public', relativePath);
-            if (fs.existsSync(absolutePath)) {
-                fs.unlinkSync(absolutePath);
+        if (photo) {
+            try {
+                if (photo.url.includes(R2_PUBLIC_URL)) {
+                    const key = photo.url.replace(`${R2_PUBLIC_URL}/`, '');
+                    await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET_NAME, Key: key }));
+                }
+            } catch (e) {
+                console.error(`Failed to delete R2 object for photo ${id}`, e);
             }
-
-            this.data.vectors = this.data.vectors.filter(v => v.photoId !== id);
-            this.save();
-            return deleted;
         }
-        return null;
+
+        if (error) return null;
+        return photo as Photo;
     }
 
     async addPhotoWithVectors(url: string, eventId: string, vectors: number[][], hashes?: string[], isPrivate: boolean = false) {
-        const photo: Photo = {
-            id: crypto.randomUUID(),
-            url,
-            eventId,
-            isPrivate,
-            createdAt: new Date()
-        };
-        this.data.photos.push(photo);
+        const photoId = crypto.randomUUID();
+
+        const { data: photo, error: photoError } = await supabase
+            .from('photos')
+            .insert({
+                id: photoId,
+                url,
+                event_id: eventId,
+                is_private: isPrivate
+            })
+            .select()
+            .single();
+
+        if (photoError) throw photoError;
 
         if (vectors.length > 0) {
-            const vectorRecords = vectors.map((v, i) => ({
+            const vectorRecords = vectors.map((vector, i) => ({
                 id: crypto.randomUUID(),
-                photoId: photo.id,
-                eventId,
-                vectorStr: JSON.stringify(v),
-                faceHash: hashes ? hashes[i] : undefined
+                photo_id: photoId,
+                event_id: eventId,
+                vector_str: JSON.stringify(vector),
+                face_hash: hashes ? hashes[i] : null
             }));
-            this.data.vectors.push(...vectorRecords);
+
+            const { error: vectorError } = await supabase
+                .from('vectors')
+                .insert(vectorRecords);
+
+            if (vectorError) throw vectorError;
         }
 
-        this.save();
-        return photo;
+        return photo as Photo;
     }
 
     async getPhotos(eventId: string, includePrivate: boolean = false) {
-        this.load();
-        return this.data.photos
-            .filter(p => p.eventId === eventId && (includePrivate || !p.isPrivate))
-            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        console.log('[DB] getPhotos called for event:', eventId, 'includePrivate:', includePrivate);
+        let query = supabase
+            .from('photos')
+            .select('*')
+            .eq('event_id', eventId);
+
+        if (!includePrivate) {
+            query = query.eq('is_private', false);
+        }
+
+        const { data, error } = await query.order('created_at', { ascending: false });
+
+        if (error) {
+            console.error('[DB] getPhotos error:', error.message, error.code, error.details);
+            throw error;
+        }
+        console.log('[DB] getPhotos result:', data.length, 'photos');
+        return data as Photo[];
     }
 
     async findMatches(eventId: string, queryVectors: number[][]): Promise<string[]> {
-        this.load();
-        const candidates = this.data.vectors.filter(v => v.eventId === eventId);
+        const { data: candidates, error } = await supabase
+            .from('vectors')
+            .select('*')
+            .eq('event_id', eventId);
+
+        if (error) throw error;
+
         const matches = new Set<string>();
-        // Tuned Threshold to 0.5 for Pro Level Accuracy
         const threshold = 0.5;
 
-        // Iterate through each face detected in the selfie
         for (const queryVector of queryVectors) {
             for (const item of candidates) {
                 try {
-                    const dbVector = JSON.parse(item.vectorStr) as number[];
+                    const dbVector = JSON.parse(item.vector_str) as number[];
                     if (this.euclideanDistance(queryVector, dbVector) < threshold) {
-                        const photo = this.data.photos.find(p => p.id === item.photoId);
+                        const { data: photo } = await supabase
+                            .from('photos')
+                            .select('url')
+                            .eq('id', item.photo_id)
+                            .single();
+
                         if (photo) matches.add(photo.url);
                     }
                 } catch (e) {
@@ -297,4 +292,4 @@ class LocalDatabase {
     }
 }
 
-export const db = new LocalDatabase();
+export const db = new Database();
