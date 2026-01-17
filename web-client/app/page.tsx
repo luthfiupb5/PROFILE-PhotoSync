@@ -39,6 +39,7 @@ function EventPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
   useEffect(() => {
     setStatus("Initializing Neural Engine...");
@@ -50,6 +51,7 @@ function EventPage() {
 
   const startCamera = async () => {
     setStep("CAMERA");
+    setCapturedImage(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
       if (videoRef.current) videoRef.current.srcObject = stream;
@@ -122,7 +124,19 @@ function EventPage() {
   };
 
   const handleCapture = () => {
-    if (videoRef.current) captureProcess(videoRef.current);
+    if (videoRef.current) {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas'); // Create temp canvas
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(video, 0, 0);
+        const dataUrl = canvas.toDataURL('image/jpeg');
+        setCapturedImage(dataUrl); // Freeze the UI
+        captureProcess(dataUrl); // Process the image
+      }
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -287,7 +301,11 @@ function EventPage() {
 
             <div className="relative w-full max-w-md aspect-[3/4] mx-auto px-6">
               <div className="relative w-full h-full rounded-[3rem] overflow-hidden border border-[var(--border)] shadow-2xl bg-zinc-900">
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
+                {capturedImage ? (
+                  <img src={capturedImage} className="w-full h-full object-cover transform scale-x-[-1]" />
+                ) : (
+                  <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
+                )}
 
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-8 pointer-events-none">
                   <div className="w-64 h-80 rounded-[45%] border-2 border-white/20 relative overflow-hidden">
@@ -339,7 +357,7 @@ function EventPage() {
         )}
 
         {loading && (
-          <div className="fixed inset-0 z-50 bg-[#000000]/90 backdrop-blur-2xl flex flex-col items-center justify-center animate-fade-in">
+          <div className="fixed inset-0 z-50 bg-[#000000]/60 backdrop-blur-md flex flex-col items-center justify-center animate-fade-in">
             <div className="relative">
               <div className="w-24 h-24 rounded-full border-2 border-white/10 animate-spin"></div>
               <div className="absolute inset-0 w-24 h-24 rounded-full border-t-2 border-red-600 animate-spin"></div>
