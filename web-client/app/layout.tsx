@@ -18,6 +18,9 @@ const outfit = Outfit({
 export const metadata: Metadata = {
   title: "Profile - AI Photo Sync",
   description: "Secure, AI-powered photo distribution for events.",
+  icons: {
+    icon: '/assets/favicon.jpg',
+  },
 };
 
 export default function RootLayout({
