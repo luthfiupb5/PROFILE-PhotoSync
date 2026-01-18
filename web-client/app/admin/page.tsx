@@ -237,7 +237,8 @@ export default function AdminDashboard() {
                 const photo = allPhotos[i];
                 try {
                     // Fetch image as blob
-                    const imgBlob = await fetch(photo.url).then(r => r.blob());
+                    // Fetch image as blob via PROXY to avoid CORS
+                    const imgBlob = await fetch(`/api/proxy?url=${encodeURIComponent(photo.url)}`).then(r => r.blob());
                     const imgUrl = URL.createObjectURL(imgBlob);
                     const img = await faceapi.fetchImage(imgUrl);
 
