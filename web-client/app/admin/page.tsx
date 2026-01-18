@@ -10,6 +10,7 @@ import {
     LayoutGrid, Zap, Wand2, Trash2, Loader2, Menu, Lock, Globe
 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
+import imageCompression from 'browser-image-compression';
 
 interface Photo {
     id: string;
@@ -175,6 +176,16 @@ export default function AdminDashboard() {
                 const faceHashes = detections.map(d => FaceMatcher.generateFaceHash(d.descriptor));
 
                 let blobToUpload = file;
+                try {
+                    const options = {
+                        maxSizeMB: 2,
+                        maxWidthOrHeight: 1920,
+                        useWebWorker: true
+                    };
+                    blobToUpload = await imageCompression(file, options);
+                } catch (error) {
+                    console.warn("Compression failed, uploading original", error);
+                }
 
 
 
