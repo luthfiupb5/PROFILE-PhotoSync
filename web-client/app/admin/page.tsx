@@ -179,7 +179,7 @@ export default function AdminDashboard() {
                 let blobToUpload = file;
                 try {
                     const options = {
-                        maxSizeMB: 3,
+                        maxSizeMB: 2,
                         maxWidthOrHeight: 1920,
                         useWebWorker: true
                     };
