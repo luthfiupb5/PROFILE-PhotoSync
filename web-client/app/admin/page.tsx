@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import imageCompression from 'browser-image-compression';
+import { RefreshCw } from "lucide-react";
 
 interface Photo {
     id: string;
@@ -33,7 +34,10 @@ export default function AdminDashboard() {
 
     const [user, setUser] = useState<AuthUser | null>(null);
     const [authLoading, setAuthLoading] = useState(true);
+
     const [modelStatus, setModelStatus] = useState("Initializing AI...");
+    const [reindexing, setReindexing] = useState(false);
+    const [reindexProgress, setReindexProgress] = useState({ current: 0, total: 0 });
 
     const [photos, setPhotos] = useState<Photo[]>([]);
     const [loadingPhotos, setLoadingPhotos] = useState(false);
@@ -169,7 +173,8 @@ export default function AdminDashboard() {
                     }
                 }
 
-                const detections = await faceapi.detectAllFaces(detectionInput, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.6 }))
+                // Use centralized detector options
+                const detections = await faceapi.detectAllFaces(detectionInput, FaceMatcher.getDetectorOptions())
                     .withFaceLandmarks()
                     .withFaceDescriptors();
 
@@ -217,6 +222,59 @@ export default function AdminDashboard() {
         setUploadQueue([]);
         setProcessingStatus("");
         fetchPhotos(PROFILE_EVENT_ID);
+        fetchPhotos(PROFILE_EVENT_ID);
+    };
+
+    const handleReindex = async () => {
+        if (!confirm("This will re-scan all photos in the gallery with the new AI model. This process takes time and must not be interrupted. Continue?")) return;
+
+        setReindexing(true);
+        try {
+            const allPhotos = await fetch(`/api/events/${PROFILE_EVENT_ID}/photos?includePrivate=true`).then(r => r.json());
+            setReindexProgress({ current: 0, total: allPhotos.length });
+
+            for (let i = 0; i < allPhotos.length; i++) {
+                const photo = allPhotos[i];
+                try {
+                    // Fetch image as blob
+                    const imgBlob = await fetch(photo.url).then(r => r.blob());
+                    const imgUrl = URL.createObjectURL(imgBlob);
+                    const img = await faceapi.fetchImage(imgUrl);
+
+                    // Detect using NEW model
+                    const detections = await faceapi.detectAllFaces(img, FaceMatcher.getDetectorOptions())
+                        .withFaceLandmarks()
+                        .withFaceDescriptors();
+
+                    const vectors = detections.map(d => Array.from(d.descriptor));
+                    const faceHashes = detections.map(d => FaceMatcher.generateFaceHash(d.descriptor));
+
+                    URL.revokeObjectURL(imgUrl);
+
+                    // Send update to server
+                    await fetch('/api/admin/reindex', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            photoId: photo.id,
+                            eventId: PROFILE_EVENT_ID,
+                            vectors,
+                            faceHashes
+                        })
+                    });
+
+                } catch (e) {
+                    console.error(`Failed to reindex ${photo.id}`, e);
+                }
+                setReindexProgress(prev => ({ ...prev, current: i + 1 }));
+            }
+            alert("Gallery Re-indexing Complete!");
+        } catch (e) {
+            console.error("Reindex failed", e);
+            alert("Re-indexing failed: " + e);
+        } finally {
+            setReindexing(false);
+        }
     };
 
 
@@ -340,6 +398,22 @@ export default function AdminDashboard() {
                                 </div>
                             </div>
                         </div>
+
+                        <div className="glass-panel p-6 rounded-2xl flex flex-col justify-between h-36 relative overflow-hidden group hover:border-red-500/30">
+                            <div className="relative z-10 w-full">
+                                <p className="text-[var(--muted)] text-xs font-bold uppercase tracking-wider">Maintenance</p>
+                                <div className="mt-4">
+                                    <button
+                                        onClick={handleReindex}
+                                        disabled={reindexing}
+                                        className="w-full py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-bold uppercase tracking-widest text-white transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <RefreshCw size={14} className={reindexing ? "animate-spin" : ""} />
+                                        {reindexing ? `Re-indexing ${reindexProgress.current}/${reindexProgress.total}` : "Re-index Gallery"}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <div className="glass-panel rounded-2xl overflow-hidden shadow-2xl shadow-black/40 border-red-500/10">
@@ -455,7 +529,7 @@ export default function AdminDashboard() {
                     </div>
 
                 </div>
-            </main>
+            </main >
 
             {showQRModal && (
                 <div className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center animate-fade-in p-4" onClick={() => setShowQRModal(false)}>
@@ -487,7 +561,8 @@ export default function AdminDashboard() {
                         </button>
                     </div>
                 </div>
-            )}
-        </div>
+            )
+            }
+        </div >
     );
 }

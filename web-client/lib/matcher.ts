@@ -24,15 +24,23 @@ export class FaceMatcher {
         if (this.modelsLoaded) return;
         try {
             const MODEL_URL = '/models';
-            // Load the most accurate model (SSD Mobilenet v1)
-            await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+            // Load TinyFaceDetector (Faster, optimized for web)
+            await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
             await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
             await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+            // Pre-load SSD MobileNet just in case legacy code needs it, but we prefer Tiny
+            // await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL); 
+
             this.modelsLoaded = true;
-            console.log("AI Models loaded: SSD MobileNet v1 (High Accuracy)");
+            console.log("AI Models loaded: TinyFaceDetector (Performance Optimized)");
         } catch (e) {
             console.error("Failed to load AI models", e);
         }
+    }
+
+    public static getDetectorOptions() {
+        // Input size 512 is a good balance for TinyFaceDetector
+        return new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.5 });
     }
 
     public async loadIndex(indexData: FaceRecord[]) {
@@ -57,8 +65,8 @@ export class FaceMatcher {
         if (!this.modelsLoaded) await this.loadModels();
 
         const img = await faceapi.fetchImage(selfieUrl);
-        // Use SSD MobileNet for selfie as well for consistency
-        const detection = await faceapi.detectSingleFace(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+
+        const detection = await faceapi.detectSingleFace(img, FaceMatcher.getDetectorOptions())
             .withFaceLandmarks()
             .withFaceDescriptor();
 
@@ -69,13 +77,10 @@ export class FaceMatcher {
 
         const selfieVector = detection.descriptor;
         const matches: string[] = [];
-        // Stricter threshold for "Pro Level" accuracy
-        // 0.6 is typical, 0.5 is strict. 0.55 is a good balance. 
-        // User requested "sooo accurate", so let's stick to 0.5 to avoid false positives, 
-        // or slightly loose (0.55) to ensure we find them? 
-        // Euclidean Distance: LOWER is better match. 
-        // < 0.6 is usually same person. < 0.4 is very strict.
-        // Let's use 0.5 for high precision as requested.
+
+        // Threshold for TinyFaceDetector might differ. 
+        // 0.5 is standard, but sometimes 0.45 or 0.55 works better.
+        // Keeping 0.5 for now.
         const threshold = 0.5;
 
         for (const entry of this.index) {

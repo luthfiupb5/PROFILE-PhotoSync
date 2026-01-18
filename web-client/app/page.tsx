@@ -79,7 +79,8 @@ function EventPage() {
       }
 
       // Pro-Level: Detect ALL faces in the input image
-      const detections = await faceapi.detectAllFaces(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
+      // Using consistent detector options from matcher
+      const detections = await faceapi.detectAllFaces(img, FaceMatcher.getDetectorOptions())
         .withFaceLandmarks()
         .withFaceDescriptors();
 
