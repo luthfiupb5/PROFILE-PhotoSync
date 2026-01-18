@@ -15,6 +15,7 @@ import imageCompression from 'browser-image-compression';
 interface Photo {
     id: string;
     url: string;
+    isPrivate?: boolean;
 }
 
 interface AuthUser {
@@ -438,7 +439,7 @@ export default function AdminDashboard() {
                                 {photos.map(p => (
                                     <div key={p.id} className="relative aspect-square group rounded-2xl overflow-hidden bg-[var(--surface-highlight)] border border-white/5 hover:border-red-500/50 transition-all shadow-lg hover:shadow-red-500/20">
                                         <img src={p.url} alt="" className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-300 transform group-hover:scale-105" loading="lazy" />
-                                        {(p as any).isPrivate && (
+                                        {p.isPrivate && (
                                             <div className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full shadow-md z-20" title="Private Photo">
                                                 <Lock size={12} />
                                             </div>
